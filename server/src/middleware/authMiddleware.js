@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 
+// 1. Protect routes (Ensure user is logged in)
 exports.protect = (req, res, next) => {
   let token;
 
@@ -18,4 +19,18 @@ exports.protect = (req, res, next) => {
   } catch (error) {
     return res.status(401).json({ status: 'fail', message: 'Invalid or expired token.' });
   }
+};
+
+// 2. Restrict routes to specific roles (e.g. 'admin')
+exports.restrictTo = (...roles) => {
+  return (req, res, next) => {
+    // req.user was set by protect middleware
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({
+        status: 'fail',
+        message: 'You do not have permission to perform this action.',
+      });
+    }
+    next();
+  };
 };

@@ -2,10 +2,9 @@ const db = require('../config/db');
 
 // 1. CREATE ORDER WITH ATOMIC STOCK RESERVATION
 exports.createOrder = async (req, res) => {
-  const userId = req.user.id; // Extracted from JWT via protect middleware
+  const userId = req.user.id;
   const { items, shipping_address_line1, shipping_address_line2, city, parish_or_state, country } = req.body;
 
-  // Basic Validation
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ status: 'fail', message: 'Order must contain at least one item.' });
   }
@@ -17,13 +16,11 @@ exports.createOrder = async (req, res) => {
   const client = await db.pool.connect();
 
   try {
-    // START TRANSACTION
     await client.query('BEGIN');
 
     let calculatedTotal = 0;
     const validatedItems = [];
 
-    // Step A: Validate stock and prices for every item in cart
     for (const item of items) {
       const { variant_id, quantity } = item;
 
@@ -32,7 +29,6 @@ exports.createOrder = async (req, res) => {
         return res.status(400).json({ status: 'fail', message: 'Invalid item variant or quantity.' });
       }
 
-      // Query product base price and variant stock WITH FOR UPDATE (row lock)
       const variantCheck = await client.query(
         `SELECT pv.id AS variant_id, pv.stock_quantity, pv.size, p.title, p.base_price 
          FROM product_variants pv
@@ -49,7 +45,6 @@ exports.createOrder = async (req, res) => {
 
       const variant = variantCheck.rows[0];
 
-      // Verify sufficient stock
       if (variant.stock_quantity < quantity) {
         await client.query('ROLLBACK');
         return res.status(400).json({
@@ -68,7 +63,6 @@ exports.createOrder = async (req, res) => {
       });
     }
 
-    // Step B: Deduct stock atomically from variants table
     for (const item of validatedItems) {
       await client.query(
         `UPDATE product_variants 
@@ -78,7 +72,6 @@ exports.createOrder = async (req, res) => {
       );
     }
 
-    // Step C: Create the master Order record
     const orderResult = await client.query(
       `INSERT INTO orders (user_id, total_amount, shipping_address_line1, shipping_address_line2, city, parish_or_state, country, status)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
@@ -96,7 +89,6 @@ exports.createOrder = async (req, res) => {
 
     const newOrder = orderResult.rows[0];
 
-    // Step D: Insert individual Order Items
     for (const item of validatedItems) {
       await client.query(
         `INSERT INTO order_items (order_id, variant_id, price_at_purchase, quantity)
@@ -105,7 +97,6 @@ exports.createOrder = async (req, res) => {
       );
     }
 
-    // COMMIT TRANSACTION
     await client.query('COMMIT');
 
     res.status(201).json({
@@ -113,10 +104,10 @@ exports.createOrder = async (req, res) => {
       data: {
         order: {
           id: newOrder.id,
-          total_amount: newOrder.total_amount,
+          totalAmount: newOrder.total_amount,
           status: newOrder.status,
-          created_at: newOrder.created_at,
-          item_count: validatedItems.length,
+          createdAt: newOrder.created_at,
+          itemCount: validatedItems.length,
         },
       },
     });
@@ -136,16 +127,29 @@ exports.getMyOrders = async (req, res) => {
   try {
     const queryText = `
       SELECT 
-        o.id AS order_id, o.status, o.total_amount, o.created_at,
-        o.shipping_address_line1, o.city, o.parish_or_state,
+        o.id, 
+        o.status, 
+        o.total_amount AS "totalAmount", 
+        o.created_at AS "createdAt",
+        json_build_object(
+          'streetAddress', o.shipping_address_line1,
+          'apartment', o.shipping_address_line2,
+          'city', o.city,
+          'state', o.parish_or_state,
+          'country', o.country
+        ) AS "shippingAddress",
         COALESCE(
           json_agg(
             json_build_object(
-              'item_id', oi.id,
-              'product_title', p.title,
+              'id', oi.id,
+              'title', p.title,
               'size', pv.size,
               'quantity', oi.quantity,
-              'price_at_purchase', oi.price_at_purchase
+              'price', oi.price_at_purchase,
+              'imageUrl', (
+                SELECT image_url FROM product_images 
+                WHERE product_id = p.id LIMIT 1
+              )
             )
           ) FILTER (WHERE oi.id IS NOT NULL), '[]'
         ) AS items
@@ -158,7 +162,8 @@ exports.getMyOrders = async (req, res) => {
       ORDER BY o.created_at DESC;
     `;
 
-    const result = await db.query(queryText, [userId]);
+    // Access via pool to match your db module setup
+    const result = await db.pool.query(queryText, [userId]);
 
     res.status(200).json({
       status: 'success',

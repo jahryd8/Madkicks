@@ -7,7 +7,7 @@ exports.createCheckoutSession = async (req, res) => {
   const userId = req.user.id;
 
   try {
-    // Fetch order details and ensure it belongs to the authenticated user
+    // Fetch order details and verify ownership
     const orderQuery = await db.query(
       `SELECT id, status, total_amount FROM orders WHERE id = $1 AND user_id = $2`,
       [order_id, userId]
@@ -23,7 +23,7 @@ exports.createCheckoutSession = async (req, res) => {
       return res.status(400).json({ status: 'fail', message: `Order cannot be paid for because status is '${order.status}'.` });
     }
 
-    // Fetch order items with product titles for line items
+    // Fetch order items with product details
     const itemsQuery = await db.query(
       `SELECT oi.quantity, oi.price_at_purchase, p.title, pv.size 
        FROM order_items oi
@@ -41,22 +41,22 @@ exports.createCheckoutSession = async (req, res) => {
           name: item.title,
           description: `Size: ${item.size}`,
         },
-        unit_amount: Math.round(Number(item.price_at_purchase) * 100), // Convert dollars to cents
+        unit_amount: Math.round(Number(item.price_at_purchase) * 100),
       },
       quantity: item.quantity,
     }));
 
-    // Create the Checkout Session
+    // Create Checkout Session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: lineItems,
       mode: 'payment',
       success_url: `${process.env.CLIENT_URL}/checkout/success?order_id=${order.id}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.CLIENT_URL}/checkout/cancel?order_id=${order.id}`,
-      client_reference_id: order.id,
+      client_reference_id: String(order.id),
       metadata: {
-        order_id: order.id,
-        user_id: userId,
+        order_id: String(order.id),
+        user_id: String(userId),
       },
     });
 
@@ -77,7 +77,6 @@ exports.handleStripeWebhook = async (req, res) => {
   let event;
 
   try {
-    // Construct event using the raw body buffer
     event = stripe.webhooks.constructEvent(
       req.body,
       sig,
@@ -88,27 +87,31 @@ exports.handleStripeWebhook = async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // Handle successful payment completion
+  // Payment completed
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     const orderId = session.metadata.order_id;
 
     try {
-      // Mark order status as paid and store transaction details
-      await db.query(
+      const result = await db.query(
         `UPDATE orders 
          SET status = 'paid', updated_at = NOW() 
-         WHERE id = $1 AND status = 'pending'`,
+         WHERE id = $1 AND status = 'pending'
+         RETURNING id`,
         [orderId]
       );
 
-      console.log(`✅ Order ${orderId} successfully marked as PAID.`);
+      if (result.rowCount > 0) {
+        console.log(`✅ Order ${orderId} successfully marked as PAID.`);
+      } else {
+        console.log(`ℹ️ Order ${orderId} already processed or not pending.`);
+      }
     } catch (dbErr) {
       console.error(`Database error fulfilling order ${orderId}:`, dbErr.message);
     }
   }
 
-  // Handle expired/abandoned sessions - Return reserved stock back to inventory
+  // Session expired or failed
   if (event.type === 'checkout.session.expired') {
     const session = event.data.object;
     const orderId = session.metadata.order_id;
@@ -119,9 +122,11 @@ exports.handleStripeWebhook = async (req, res) => {
   res.status(200).json({ received: true });
 };
 
-// Helper function to return inventory if payment is cancelled or abandoned
+// Helper function to return stock to inventory
 async function cancelAndRestockOrder(orderId) {
-  const client = await db.pool.connect();
+  // Use db.connect() if db exports pg.Pool directly
+  const client = typeof db.connect === 'function' ? await db.connect() : await db.pool.connect();
+  
   try {
     await client.query('BEGIN');
 
@@ -131,7 +136,7 @@ async function cancelAndRestockOrder(orderId) {
       [orderId]
     );
 
-    // Return stock
+    // Restock variants
     for (const item of items.rows) {
       await client.query(
         `UPDATE product_variants 
@@ -143,7 +148,7 @@ async function cancelAndRestockOrder(orderId) {
 
     // Update order status to cancelled
     await client.query(
-      `UPDATE orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
+      `UPDATE orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND status = 'pending'`,
       [orderId]
     );
 
