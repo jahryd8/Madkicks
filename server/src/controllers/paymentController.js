@@ -1,84 +1,111 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const db = require('../config/db');
 
+// =========================================================================
 // 1. CREATE STRIPE CHECKOUT SESSION
+// =========================================================================
 exports.createCheckoutSession = async (req, res) => {
-  const { order_id } = req.body;
   const userId = req.user.id;
+  const { order_id } = req.body;
+
+  if (!order_id) {
+    return res.status(400).json({ status: 'fail', message: 'Order ID is required.' });
+  }
 
   try {
-    // Fetch order details and verify ownership
-    const orderQuery = await db.query(
-      `SELECT id, status, total_amount FROM orders WHERE id = $1 AND user_id = $2`,
-      [order_id, userId]
-    );
+    // 1. Fetch order and corresponding line items from database
+    const orderQuery = `
+      SELECT 
+        o.id, 
+        o.status, 
+        o.total_amount, 
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'title', p.title,
+              'size', pv.size,
+              'quantity', oi.quantity,
+              'price_at_purchase', oi.price_at_purchase
+            )
+          ) FILTER (WHERE oi.id IS NOT NULL), '[]'
+        ) AS items
+      FROM orders o
+      LEFT JOIN order_items oi ON o.id = oi.order_id
+      LEFT JOIN product_variants pv ON oi.variant_id = pv.id
+      LEFT JOIN products p ON pv.product_id = p.id
+      WHERE o.id = $1 AND o.user_id = $2
+      GROUP BY o.id
+    `;
 
-    if (orderQuery.rows.length === 0) {
+    const { rows } = await db.query(orderQuery, [order_id, userId]);
+
+    if (rows.length === 0) {
       return res.status(404).json({ status: 'fail', message: 'Order not found.' });
     }
 
-    const order = orderQuery.rows[0];
+    const order = rows[0];
 
     if (order.status !== 'pending') {
-      return res.status(400).json({ status: 'fail', message: `Order cannot be paid for because status is '${order.status}'.` });
+      return res.status(400).json({
+        status: 'fail',
+        message: `Order is already marked as '${order.status}'.`,
+      });
     }
 
-    // Fetch order items with product details
-    const itemsQuery = await db.query(
-      `SELECT oi.quantity, oi.price_at_purchase, p.title, pv.size 
-       FROM order_items oi
-       JOIN product_variants pv ON oi.variant_id = pv.id
-       JOIN products p ON pv.product_id = p.id
-       WHERE oi.order_id = $1`,
-      [order_id]
-    );
-
-    // Build Stripe line items
-    const lineItems = itemsQuery.rows.map((item) => ({
+    // 2. Map line items to Stripe line_items format (Stripe expects amounts in cents)
+    const lineItems = order.items.map((item) => ({
       price_data: {
         currency: 'usd',
         product_data: {
           name: item.title,
           description: `Size: ${item.size}`,
         },
-        unit_amount: Math.round(Number(item.price_at_purchase) * 100),
+        unit_amount: Math.round(Number(item.price_at_purchase) * 100), // convert to cents
       },
       quantity: item.quantity,
     }));
 
-    // Create Checkout Session
+    const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+
+    // 3. Create Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
-      line_items: lineItems,
       mode: 'payment',
-      success_url: `${process.env.CLIENT_URL}/checkout/success?order_id=${order.id}&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.CLIENT_URL}/checkout/cancel?order_id=${order.id}`,
-      client_reference_id: String(order.id),
+      line_items: lineItems,
+      customer_email: req.user.email,
+      client_reference_id: order.id.toString(),
       metadata: {
-        order_id: String(order.id),
-        user_id: String(userId),
+        order_id: order.id.toString(),
+        user_id: userId.toString(),
       },
+      success_url: `${clientUrl}/checkout/success?order_id=${order.id}`,
+      cancel_url: `${clientUrl}/checkout/cancel`,
     });
 
     res.status(200).json({
       status: 'success',
-      session_id: session.id,
-      url: session.url,
+      data: {
+        sessionId: session.id,
+        url: session.url,
+      },
     });
   } catch (error) {
-    console.error('Stripe Session Error:', error.message);
-    res.status(500).json({ status: 'error', message: 'Failed to initiate checkout session.' });
+    console.error('Create Checkout Session Error:', error.message);
+    res.status(500).json({ status: 'error', message: 'Failed to create payment session.' });
   }
 };
 
-// 2. STRIPE WEBHOOK LISTENER
+// =========================================================================
+// 2. HANDLE STRIPE WEBHOOKS
+// =========================================================================
 exports.handleStripeWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
 
+  // 1. Verify Stripe Webhook Cryptographic Signature using the raw buffer
   try {
     event = stripe.webhooks.constructEvent(
-      req.body,
+      req.body, // Must be raw Buffer (provided by express.raw({ type: 'application/json' }))
       sig,
       process.env.STRIPE_WEBHOOK_SECRET
     );
@@ -87,77 +114,34 @@ exports.handleStripeWebhook = async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // Payment completed
+  // 2. Process specific webhook event types
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
-    const orderId = session.metadata.order_id;
+    const orderId = session.metadata?.order_id || session.client_reference_id;
 
-    try {
-      const result = await db.query(
-        `UPDATE orders 
-         SET status = 'paid', updated_at = NOW() 
-         WHERE id = $1 AND status = 'pending'
-         RETURNING id`,
-        [orderId]
-      );
+    if (orderId) {
+      try {
+        // Update database status from 'pending' -> 'paid'
+        const updateOrderQuery = `
+          UPDATE orders 
+          SET status = 'paid', updated_at = NOW() 
+          WHERE id = $1 AND status = 'pending'
+          RETURNING id, status
+        `;
+        const { rows } = await db.query(updateOrderQuery, [orderId]);
 
-      if (result.rowCount > 0) {
-        console.log(`✅ Order ${orderId} successfully marked as PAID.`);
-      } else {
-        console.log(`ℹ️ Order ${orderId} already processed or not pending.`);
+        if (rows.length > 0) {
+          console.log(`✅ Order #${orderId} marked as PAID via Stripe Webhook.`);
+        } else {
+          console.log(`⚠️ Order #${orderId} was not updated (may already be processed).`);
+        }
+      } catch (dbError) {
+        console.error(`Failed to update order #${orderId} status in DB:`, dbError.message);
+        return res.status(500).send('Database update failed');
       }
-    } catch (dbErr) {
-      console.error(`Database error fulfilling order ${orderId}:`, dbErr.message);
     }
   }
 
-  // Session expired or failed
-  if (event.type === 'checkout.session.expired') {
-    const session = event.data.object;
-    const orderId = session.metadata.order_id;
-
-    await cancelAndRestockOrder(orderId);
-  }
-
+  // Return a 200 response to acknowledge receipt of the event
   res.status(200).json({ received: true });
 };
-
-// Helper function to return stock to inventory
-async function cancelAndRestockOrder(orderId) {
-  // Use db.connect() if db exports pg.Pool directly
-  const client = typeof db.connect === 'function' ? await db.connect() : await db.pool.connect();
-  
-  try {
-    await client.query('BEGIN');
-
-    // Retrieve order items
-    const items = await client.query(
-      `SELECT variant_id, quantity FROM order_items WHERE order_id = $1`,
-      [orderId]
-    );
-
-    // Restock variants
-    for (const item of items.rows) {
-      await client.query(
-        `UPDATE product_variants 
-         SET stock_quantity = stock_quantity + $1 
-         WHERE id = $2`,
-        [item.quantity, item.variant_id]
-      );
-    }
-
-    // Update order status to cancelled
-    await client.query(
-      `UPDATE orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND status = 'pending'`,
-      [orderId]
-    );
-
-    await client.query('COMMIT');
-    console.log(`🔄 Order ${orderId} cancelled and stock returned to inventory.`);
-  } catch (err) {
-    await client.query('ROLLBACK');
-    console.error(`Failed to cancel and restock order ${orderId}:`, err.message);
-  } finally {
-    client.release();
-  }
-}

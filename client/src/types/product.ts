@@ -5,11 +5,11 @@ export interface ShoeVariant {
 }
 
 export interface ShoeProduct {
-  id: string;
+  id: string | number;
   name: string;
   brand: string;
   price: number;
   imageUrl: string;
-  sizes: (number | string)[];
-  variants?: ShoeVariant[]; // Added to map database variant IDs
+  sizes: (string | number)[];
+  description?: string; // 👈 Add optional description
 }
