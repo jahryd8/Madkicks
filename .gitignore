@@ -1,23 +1,19 @@
-# Dependencies
+# Node Modules
 node_modules/
-.pnpm-store/
+client/node_modules/
+server/node_modules/
 
-# Environment Variables
+# Environment Secrets
 .env
-.env.local
-.env.*.local
+*.env
+client/.env
+server/.env
 
 # Build Outputs
-dist/
-build/
-.next/
-out/
+client/dist/
+client/build/
+server/dist/
 
-# IDE / OS Files
-.DS_Store
-.vscode/
-.idea/
-
-# Database / Local Storage
-*.sqlite
+# Logs
 *.log
+npm-debug.log*
