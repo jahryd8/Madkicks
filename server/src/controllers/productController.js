@@ -6,7 +6,7 @@ const slugify = (text) => {
     .toString()
     .toLowerCase()
     .trim()
-    .replace(/\s+/g, '-')     // Replace spaces with -
+    .replace(/\s+/g, '-')      // Replace spaces with -
     .replace(/[^\w\-]+/g, '') // Remove all non-word chars
     .replace(/\-\-+/g, '-');  // Replace multiple - with single -
 };
@@ -231,7 +231,7 @@ exports.createProduct = async (req, res) => {
     await client.query('ROLLBACK');
     console.error('Error creating product:', error.message);
 
-    if (error.code === '23505') { // Postgres duplicate key constraint error code
+    if (error.code === '23505') { 
       return res.status(400).json({ status: 'fail', message: 'A product with this title or slug already exists.' });
     }
 
@@ -242,7 +242,79 @@ exports.createProduct = async (req, res) => {
 };
 
 // =========================================================================
-// 5. ADD A VARIANT TO AN EXISTING PRODUCT (Admin)
+// 5. UPDATE PRODUCT (Admin)
+// =========================================================================
+exports.updateProduct = async (req, res) => {
+  const { id } = req.params;
+  const { title, description, base_price, image_url, category, brand } = req.body;
+
+  try {
+    const slug = title ? slugify(title) : undefined;
+
+    const queryText = `
+      UPDATE products 
+      SET 
+        title = COALESCE($1, title),
+        slug = COALESCE($2, slug),
+        description = COALESCE($3, description),
+        base_price = COALESCE($4, base_price),
+        image_url = COALESCE($5, image_url),
+        category = COALESCE($6, category),
+        brand = COALESCE($7, brand)
+      WHERE id = $8
+      RETURNING *
+    `;
+
+    const { rows } = await db.query(queryText, [
+      title,
+      slug,
+      description,
+      base_price,
+      image_url,
+      category,
+      brand,
+      id
+    ]);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ status: 'fail', message: 'Product not found.' });
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: { product: rows[0] },
+    });
+  } catch (error) {
+    console.error('Error updating product:', error.message);
+    res.status(500).json({ status: 'error', message: 'Failed to update product.' });
+  }
+};
+
+// =========================================================================
+// 6. DELETE PRODUCT (Admin)
+// =========================================================================
+exports.deleteProduct = async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { rowCount } = await db.query('DELETE FROM products WHERE id = $1', [id]);
+
+    if (rowCount === 0) {
+      return res.status(404).json({ status: 'fail', message: 'Product not found.' });
+    }
+
+    res.status(204).json({
+      status: 'success',
+      data: null,
+    });
+  } catch (error) {
+    console.error('Error deleting product:', error.message);
+    res.status(500).json({ status: 'error', message: 'Failed to delete product.' });
+  }
+};
+
+// =========================================================================
+// 7. ADD A VARIANT TO AN EXISTING PRODUCT (Admin)
 // =========================================================================
 exports.addVariant = async (req, res) => {
   const { id } = req.params; // Product ID
