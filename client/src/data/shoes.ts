@@ -16,7 +16,7 @@ export const MOCK_SHOES: ShoeProduct[] = [
     brand: 'Adidas',
     price: 230.0,
     description: 'Re-engineered Primeknit upper paired with full-length Boost midsole technology for peak comfort.',
-    imageUrl: 'https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?auto=format&fit=crop&w=800&q=80',
+    imageUrl: '/images/shoes/adidas_YEEZY_350_V2_RB.webp',
     sizes: [7.5, 8, 9, 9.5, 10, 11],
   },
   {
