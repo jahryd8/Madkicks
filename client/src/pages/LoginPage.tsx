@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import type { FormEvent, ChangeEvent } from 'react';
+import { useState } from 'react';
+import type { FC, FormEvent, ChangeEvent } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import type { Location } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -9,7 +9,7 @@ interface LocationState {
   from?: Location;
 }
 
-export const LoginPage: React.FC = () => {
+export const LoginPage: FC = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation() as Location & { state?: LocationState };
@@ -56,12 +56,9 @@ export const LoginPage: React.FC = () => {
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center bg-zinc-950 px-4 py-12 text-zinc-100 relative overflow-hidden">
-      {/* Background Decorative Gradient Glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-zinc-800/20 rounded-full blur-3xl pointer-events-none" />
 
       <div className="w-full max-w-md bg-zinc-900/90 border border-zinc-800 rounded-2xl shadow-2xl p-8 backdrop-blur-xl relative z-10">
-        
-        {/* Header Branding */}
         <div className="text-center mb-8">
           <Link to="/" className="inline-block mb-3">
             <span className="text-3xl font-black tracking-tight text-white uppercase italic">
@@ -74,7 +71,6 @@ export const LoginPage: React.FC = () => {
           </p>
         </div>
 
-        {/* Redirect Notice */}
         {location.state?.from && (
           <div className="mb-6 p-3.5 bg-amber-950/30 border border-amber-800/50 text-amber-300 rounded-xl text-xs flex items-start space-x-2.5">
             <svg className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -84,7 +80,6 @@ export const LoginPage: React.FC = () => {
           </div>
         )}
 
-        {/* Error Alert */}
         {errorMessage && (
           <div className="mb-6 p-3.5 bg-red-950/40 border border-red-800/60 text-red-400 rounded-xl text-xs font-medium flex items-start space-x-2.5">
             <svg className="w-4 h-4 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -94,7 +89,6 @@ export const LoginPage: React.FC = () => {
           </div>
         )}
 
-        {/* Login Form */}
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 mb-2">
@@ -170,14 +164,12 @@ export const LoginPage: React.FC = () => {
           </button>
         </form>
 
-        {/* Footer Link */}
         <div className="mt-8 text-center text-xs text-zinc-400">
           Don&apos;t have an account?{' '}
           <Link to="/register" className="font-bold text-white hover:underline ml-1">
             Create one
           </Link>
         </div>
-
       </div>
     </div>
   );

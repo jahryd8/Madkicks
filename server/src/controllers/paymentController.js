@@ -13,7 +13,6 @@ exports.createCheckoutSession = async (req, res) => {
   }
 
   try {
-    // 1. Fetch order and corresponding line items from database
     const orderQuery = `
       SELECT 
         o.id, 
@@ -52,22 +51,30 @@ exports.createCheckoutSession = async (req, res) => {
       });
     }
 
-    // 2. Map line items to Stripe line_items format (Stripe expects amounts in cents)
-    const lineItems = order.items.map((item) => ({
-      price_data: {
-        currency: 'usd',
-        product_data: {
-          name: item.title,
-          description: `Size: ${item.size}`,
-        },
-        unit_amount: Math.round(Number(item.price_at_purchase) * 100), // convert to cents
-      },
-      quantity: item.quantity,
-    }));
+    // Fallback to order total if line items are missing or misconfigured
+    const lineItems = order.items.length > 0 
+      ? order.items.map((item) => ({
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: item.title,
+              description: `Size: ${item.size}`,
+            },
+            unit_amount: Math.round(Number(item.price_at_purchase) * 100),
+          },
+          quantity: item.quantity,
+        }))
+      : [{
+          price_data: {
+            currency: 'usd',
+            product_data: { name: `MadKicks Order #${order.id}` },
+            unit_amount: Math.round(Number(order.total_amount) * 100),
+          },
+          quantity: 1,
+        }];
 
     const clientUrl = process.env.CLIENT_URL || 'http://localhost:5173';
 
-    // 3. Create Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'payment',
@@ -102,10 +109,9 @@ exports.handleStripeWebhook = async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
 
-  // 1. Verify Stripe Webhook Cryptographic Signature using the raw buffer
   try {
     event = stripe.webhooks.constructEvent(
-      req.body, // Must be raw Buffer (provided by express.raw({ type: 'application/json' }))
+      req.body,
       sig,
       process.env.STRIPE_WEBHOOK_SECRET
     );
@@ -114,34 +120,52 @@ exports.handleStripeWebhook = async (req, res) => {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // 2. Process specific webhook event types
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     const orderId = session.metadata?.order_id || session.client_reference_id;
+    const paymentIntentId = session.payment_intent;
 
     if (orderId) {
+      const client = await db.getClient ? await db.getClient() : null;
+
       try {
-        // Update database status from 'pending' -> 'paid'
+        if (client) await client.query('BEGIN');
+
+        // Update status and attach Stripe Payment Intent ID
         const updateOrderQuery = `
           UPDATE orders 
-          SET status = 'paid', updated_at = NOW() 
+          SET status = 'paid', stripe_payment_id = $2, updated_at = NOW() 
           WHERE id = $1 AND status = 'pending'
-          RETURNING id, status
+          RETURNING id
         `;
-        const { rows } = await db.query(updateOrderQuery, [orderId]);
+        const queryTarget = client || db;
+        const { rows } = await queryTarget.query(updateOrderQuery, [orderId, paymentIntentId]);
 
         if (rows.length > 0) {
-          console.log(`✅ Order #${orderId} marked as PAID via Stripe Webhook.`);
+          // Deduct variant stock quantities upon successful payment
+          const deductStockQuery = `
+            UPDATE product_variants pv
+            SET stock_quantity = pv.stock_quantity - oi.quantity
+            FROM order_items oi
+            WHERE oi.order_id = $1 AND oi.variant_id = pv.id
+          `;
+          await queryTarget.query(deductStockQuery, [orderId]);
+
+          if (client) await client.query('COMMIT');
+          console.log(`✅ Order #${orderId} marked as PAID and inventory updated.`);
         } else {
-          console.log(`⚠️ Order #${orderId} was not updated (may already be processed).`);
+          if (client) await client.query('ROLLBACK');
+          console.log(`⚠️ Order #${orderId} was already processed or not pending.`);
         }
       } catch (dbError) {
-        console.error(`Failed to update order #${orderId} status in DB:`, dbError.message);
-        return res.status(500).send('Database update failed');
+        if (client) await client.query('ROLLBACK');
+        console.error(`Failed to update order #${orderId} in DB:`, dbError.message);
+        return res.status(500).send('Database processing error.');
+      } finally {
+        if (client) client.release();
       }
     }
   }
 
-  // Return a 200 response to acknowledge receipt of the event
   res.status(200).json({ received: true });
 };

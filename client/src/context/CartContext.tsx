@@ -1,12 +1,12 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import type { ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
+import type { FC, ReactNode } from 'react';
 import type { CartItem, CartContextType } from '../types/cart';
 
 const CART_STORAGE_KEY = 'madkicks_cart';
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
-export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const CartProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>(() => {
     try {
       const savedCart = localStorage.getItem(CART_STORAGE_KEY);
@@ -76,8 +76,14 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     );
   };
 
+  // Clears state and cleans up local storage immediately
   const clearCart = (): void => {
     setCartItems([]);
+    try {
+      localStorage.removeItem(CART_STORAGE_KEY);
+    } catch (error) {
+      console.error('Failed to clear cart from localStorage:', error);
+    }
   };
 
   const subtotal = cartItems.reduce(

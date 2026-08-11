@@ -11,8 +11,11 @@ import {
   AlertCircle, 
   MapPin, 
   ShoppingBag,
-  ChevronRight
+  ChevronRight,
+  ChevronLeft
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import axiosClient from '../api/axiosClient';
 
 export interface OrderItem {
   id: string;
@@ -38,36 +41,33 @@ export interface Order {
   };
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const ITEMS_PER_PAGE = 5;
 
 export const OrdersPage: React.FC = () => {
+  const { token, logout } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [activeTab, setActiveTab] = useState<string>('all');
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState<number>(1);
 
   const location = useLocation();
   const showSuccessBanner = location.state?.orderSuccess;
 
   const fetchOrders = async () => {
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      const token = localStorage.getItem('token');
-
-      const response = await fetch(`${API_BASE_URL}/api/orders/my-orders`, {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || 'Failed to retrieve orders.');
-      }
+      const response = await axiosClient.get('/orders/my-orders');
+      const result = response.data;
 
       const formattedOrders: Order[] = (result.data?.orders || result.orders || []).map((ord: any) => ({
         ...ord,
@@ -85,7 +85,11 @@ export const OrdersPage: React.FC = () => {
 
       setOrders(formattedOrders);
     } catch (err: any) {
-      setError(err.message || 'An error occurred while fetching orders.');
+      if (err.response?.status === 401) {
+        logout();
+      }
+      const message = err.response?.data?.message || err.message || 'An error occurred while fetching orders.';
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -93,8 +97,9 @@ export const OrdersPage: React.FC = () => {
 
   useEffect(() => {
     fetchOrders();
-  }, []);
+  }, [token]);
 
+  // Filter orders by tab and search
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
       const matchesStatus =
@@ -109,6 +114,26 @@ export const OrdersPage: React.FC = () => {
       return matchesStatus && matchesSearch;
     });
   }, [orders, activeTab, searchQuery]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, activeTab]);
+
+  // Paginate filtered orders
+  const totalPages = Math.ceil(filteredOrders.length / ITEMS_PER_PAGE) || 1;
+  
+  const paginatedOrders = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredOrders.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredOrders, currentPage]);
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
   const getStatusBadge = (status: Order['status']) => {
     const normalizedStatus = status?.toLowerCase();
@@ -288,7 +313,7 @@ export const OrdersPage: React.FC = () => {
         ) : (
           /* Order Cards List */
           <div className="space-y-6">
-            {filteredOrders.map((order) => (
+            {paginatedOrders.map((order) => (
               <div
                 key={order.id}
                 className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden hover:border-slate-300 transition"
@@ -372,6 +397,52 @@ export const OrdersPage: React.FC = () => {
                 </div>
               </div>
             ))}
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="mt-8 pt-6 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <span className="text-xs text-slate-500">
+                  Showing page <strong className="text-slate-900 font-semibold">{currentPage}</strong> of{' '}
+                  <strong className="text-slate-900 font-semibold">{totalPages}</strong> ({filteredOrders.length} orders)
+                </span>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="inline-flex items-center gap-1 px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Previous
+                  </button>
+
+                  <div className="hidden sm:flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                      <button
+                        key={page}
+                        onClick={() => handlePageChange(page)}
+                        className={`w-8 h-8 rounded-lg text-xs font-bold transition ${
+                          currentPage === page
+                            ? 'bg-slate-900 text-white shadow-sm'
+                            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="inline-flex items-center gap-1 px-3.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                  >
+                    Next
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

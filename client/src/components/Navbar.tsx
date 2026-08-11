@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -12,16 +12,27 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCart }) => {
   const { totalItemCount } = useCart();
   const { user, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
 
+  // Primary navigation links (Orders dynamically appended if authenticated)
   const navLinks = [
     { name: 'Drops', path: '/' },
     { name: 'Catalog', path: '/catalog' },
+    ...(user ? [{ name: 'Orders', path: '/orders' }] : []),
   ];
 
   const isActive = (path: string) => {
     if (path === '/' && location.pathname === '/') return true;
     if (path !== '/' && location.pathname.startsWith(path)) return true;
     return false;
+  };
+
+  const handleCartClick = () => {
+    if (onOpenCart) {
+      onOpenCart();
+    } else {
+      navigate('/cart');
+    }
   };
 
   return (
@@ -62,7 +73,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCart }) => {
           
           {/* Cart Icon Trigger */}
           <button
-            onClick={onOpenCart}
+            onClick={handleCartClick}
             className="relative p-2.5 rounded-xl border border-zinc-800 bg-zinc-900/60 hover:bg-zinc-800 text-zinc-300 hover:text-white transition group"
             aria-label="Open Cart"
           >
@@ -91,9 +102,14 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCart }) => {
           {/* User Auth Menu */}
           {user ? (
             <div className="hidden sm:flex items-center space-x-3 border-l border-zinc-800 pl-3">
-              <span className="text-xs font-medium text-zinc-400 truncate max-w-[120px]">
+              <Link
+                to="/orders"
+                className={`text-xs font-medium truncate max-w-[120px] transition ${
+                  isActive('/orders') ? 'text-white font-bold' : 'text-zinc-400 hover:text-white'
+                }`}
+              >
                 {user.name}
-              </span>
+              </Link>
               <button
                 onClick={logout}
                 className="px-3 py-1.5 rounded-xl text-xs font-bold bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-zinc-800 transition"
@@ -159,7 +175,13 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCart }) => {
           <div className="pt-3 border-t border-zinc-800 flex flex-col gap-2">
             {user ? (
               <div className="flex items-center justify-between pt-1">
-                <span className="text-xs font-semibold text-zinc-400">{user.email}</span>
+                <Link
+                  to="/orders"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="text-xs font-semibold text-zinc-400 hover:text-white truncate max-w-[200px]"
+                >
+                  {user.email}
+                </Link>
                 <button
                   onClick={() => {
                     logout();

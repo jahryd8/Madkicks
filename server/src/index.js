@@ -11,26 +11,44 @@ const paymentController = require('./controllers/paymentController');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Enable CORS
-app.use(cors());
+// 1. CORS Setup (Restrict origins in production)
+const allowedOrigins = [
+  'http://localhost:5173', // Local Vite frontend
+  process.env.CLIENT_URL,   // Hosted Vercel frontend domain
+].filter(Boolean);
 
-// 1. Stripe Webhook (MUST be mounted before global express.json middleware)
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, curl, or Postman)
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('CORS policy violation: Origin not allowed.'));
+    },
+    credentials: true,
+  })
+);
+
+// 2. Stripe Webhook (Raw body requirement)
+// Ensure inside paymentRoutes.js you DO NOT define POST /webhook again
 app.post(
   '/api/payments/webhook',
   express.raw({ type: 'application/json' }),
   paymentController.handleStripeWebhook
 );
 
-// 2. Global Middleware for JSON parsing
+// 3. Global Middleware for Parsing JSON & URL-encoded Bodies
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// 3. Mount Standard API Routes
+// 4. API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
 
-// Root Health Check Route
+// Health Check Route
 app.get('/', (req, res) => {
   res.status(200).json({
     status: 'success',
@@ -38,7 +56,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// 4. Global 404 Handler for Unmatched Routes
+// 5. 404 Handler
 app.use((req, res) => {
   res.status(404).json({
     status: 'fail',
@@ -46,7 +64,7 @@ app.use((req, res) => {
   });
 });
 
-// 5. Global Error Handling Middleware
+// 6. Global Error Handler
 app.use((err, req, res, next) => {
   console.error('Unhandled Server Error:', err.stack);
   res.status(err.statusCode || 500).json({

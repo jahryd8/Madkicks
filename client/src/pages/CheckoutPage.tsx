@@ -1,15 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
-import { 
-  Truck, 
-  ShieldCheck, 
-  AlertCircle, 
-  ArrowLeft, 
-  ShoppingBag, 
-  Lock,
-  Check
-} from 'lucide-react';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
@@ -45,9 +36,15 @@ export const CheckoutPage: React.FC = () => {
     setSubmitting(true);
 
     try {
-      const token = localStorage.getItem('token');
+      let token = localStorage.getItem('token');
       if (!token) {
         throw new Error('Please log in to place an order.');
+      }
+
+      // Sanitize token (remove extra quotes or duplicate "Bearer " prefixes)
+      token = token.replace(/^"|"$/g, '').trim();
+      if (token.toLowerCase().startsWith('bearer ')) {
+        token = token.slice(7).trim();
       }
 
       const payloadItems = cartItems.map((item: any) => ({
@@ -94,7 +91,9 @@ export const CheckoutPage: React.FC = () => {
       <div className="min-h-[80vh] bg-slate-50/50 flex flex-col items-center justify-center p-4 font-sans text-center">
         <div className="bg-white p-10 rounded-2xl border border-slate-200/80 shadow-xl shadow-slate-100 max-w-md w-full">
           <div className="w-16 h-16 bg-slate-100 border border-slate-200 rounded-2xl flex items-center justify-center mx-auto mb-4 text-slate-500">
-            <ShoppingBag className="w-8 h-8" />
+            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.75" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+            </svg>
           </div>
           <h2 className="text-xl font-bold text-slate-900 mb-2">Your cart is empty</h2>
           <p className="text-slate-500 text-sm mb-6 leading-relaxed">
@@ -104,7 +103,9 @@ export const CheckoutPage: React.FC = () => {
             to="/"
             className="w-full inline-flex items-center justify-center gap-2 bg-slate-900 text-white font-medium py-3 px-5 rounded-xl hover:bg-slate-800 transition text-sm shadow-sm active:scale-[0.99]"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
             Back to Shop
           </Link>
         </div>
@@ -121,7 +122,9 @@ export const CheckoutPage: React.FC = () => {
             onClick={() => navigate(-1)}
             className="inline-flex items-center gap-2 text-xs font-semibold text-slate-500 hover:text-slate-900 transition"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
             Return to Cart
           </button>
         </div>
@@ -130,7 +133,9 @@ export const CheckoutPage: React.FC = () => {
 
         {errorMessage && (
           <div className="mb-8 p-4 bg-rose-50 border border-rose-200/80 text-rose-800 text-sm rounded-2xl flex items-start gap-3 shadow-sm">
-            <AlertCircle className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" />
+            <svg className="w-5 h-5 text-rose-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
             <div>
               <p className="font-semibold">Unable to process order</p>
               <p className="text-xs text-rose-700 mt-0.5">{errorMessage}</p>
@@ -143,7 +148,10 @@ export const CheckoutPage: React.FC = () => {
           <div className="lg:col-span-7">
             <form onSubmit={handleSubmitOrder} className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200/80 shadow-sm space-y-6">
               <div className="flex items-center gap-2.5 border-b border-slate-100 pb-4">
-                <Truck className="w-5 h-5 text-slate-700" />
+                <svg className="w-5 h-5 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1e1 1 0 011 1h2m-6-1a2 2 0 002 2h2a2 2 0 002-2m0 0h2a1 1 0 001-1v-3.586a1 1 0 00-.293-.707l-2.828-2.828A1 1 0 0015.586 9H13" />
+                </svg>
                 <h2 className="text-lg font-bold text-slate-900">Shipping Information</h2>
               </div>
 
@@ -236,7 +244,9 @@ export const CheckoutPage: React.FC = () => {
                     </>
                   ) : (
                     <>
-                      <Lock className="w-4 h-4" />
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                      </svg>
                       Place Order (${totalAmount?.toFixed(2) || '0.00'})
                     </>
                   )}
@@ -304,11 +314,15 @@ export const CheckoutPage: React.FC = () => {
             {/* Trust Badges */}
             <div className="bg-slate-100/70 rounded-2xl p-4 border border-slate-200/50 space-y-2">
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
                 <span>Secure Checkout Encryption</span>
               </div>
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-                <Check className="w-4 h-4 text-blue-600" />
+                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                </svg>
                 <span>Direct Order Tracking & History Updates</span>
               </div>
             </div>

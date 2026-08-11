@@ -1,8 +1,7 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import type { ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
+import type { FC, ReactNode } from 'react';
 import axiosClient from '../api/axiosClient';
 
-// 1. Add register payload & method to the Interface
 export interface RegisterPayload {
   name: string;
   email: string;
@@ -21,24 +20,23 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (payload: RegisterPayload) => Promise<void>; // 👈 Added register method
+  register: (payload: RegisterPayload) => Promise<void>;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Initialize auth state on load
   useEffect(() => {
     const initAuth = async () => {
       if (token) {
         try {
           const res = await axiosClient.get('/auth/me');
-          setUser(res.data.data.user || res.data.user);
+          setUser(res.data.data?.user || res.data.user);
         } catch {
           logout();
         }
@@ -48,7 +46,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     initAuth();
   }, [token]);
 
-  // Login Method
   const login = async (email: string, password: string) => {
     const res = await axiosClient.post('/auth/login', { email, password });
     const { token: newToken, user: userData } = res.data.data || res.data;
@@ -58,7 +55,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUser(userData);
   };
 
-  // 2. Implement Register Method
   const register = async (payload: RegisterPayload) => {
     const res = await axiosClient.post('/auth/register', payload);
     const { token: newToken, user: userData } = res.data.data || res.data;
@@ -68,7 +64,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUser(userData);
   };
 
-  // Logout Method
   const logout = () => {
     localStorage.removeItem('token');
     setToken(null);

@@ -1,4 +1,3 @@
-import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
@@ -11,6 +10,8 @@ import { ProductCatalog } from './pages/ProductCatalog';
 import { OrdersPage } from './pages/OrdersPage';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { CartPage } from './pages/CartPage';
+import CheckoutSuccess from './pages/CheckoutSuccess';
+import CheckoutCancel from './pages/CheckoutCancel';
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
           <Routes>
             {/* Public Routes */}
             <Route path="/" element={<ProductCatalog />} />
+            <Route path="/catalog" element={<ProductCatalog />} />
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
 
@@ -40,6 +42,22 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <CheckoutPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/checkout/success"
+              element={
+                <ProtectedRoute>
+                  <CheckoutSuccess />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/checkout/cancel"
+              element={
+                <ProtectedRoute>
+                  <CheckoutCancel />
                 </ProtectedRoute>
               }
             />
