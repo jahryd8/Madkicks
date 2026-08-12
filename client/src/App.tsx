@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import { CartProvider } from './context/CartContext';
 import { Navbar } from './components/Navbar';
+import { Footer } from './components/Footer';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { LoginPage } from './pages/LoginPage';
@@ -18,68 +19,76 @@ export default function App() {
     <AuthProvider>
       <CartProvider>
         <Router>
-          {/* Persistent Navbar across all routes */}
-          <Navbar />
+          <div className="flex flex-col min-h-screen bg-slate-950 text-slate-100">
+            {/* Persistent Navbar across all routes */}
+            <Navbar />
 
-          <Routes>
-            {/* Public Routes */}
-            <Route path="/" element={<ProductCatalog />} />
-            <Route path="/catalog" element={<ProductCatalog />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
+            {/* Main view container takes remaining vertical space */}
+            <main className="flex-grow">
+              <Routes>
+                {/* Public Routes */}
+                <Route path="/" element={<ProductCatalog />} />
+                <Route path="/catalog" element={<ProductCatalog />} />
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
 
-            {/* User Protected Routes */}
-            <Route
-              path="/cart"
-              element={
-                <ProtectedRoute>
-                  <CartPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/checkout"
-              element={
-                <ProtectedRoute>
-                  <CheckoutPage />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/checkout/success"
-              element={
-                <ProtectedRoute>
-                  <CheckoutSuccess />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/checkout/cancel"
-              element={
-                <ProtectedRoute>
-                  <CheckoutCancel />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/orders"
-              element={
-                <ProtectedRoute>
-                  <OrdersPage />
-                </ProtectedRoute>
-              }
-            />
+                {/* User Protected Routes */}
+                <Route
+                  path="/cart"
+                  element={
+                    <ProtectedRoute>
+                      <CartPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/checkout"
+                  element={
+                    <ProtectedRoute>
+                      <CheckoutPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/checkout/success"
+                  element={
+                    <ProtectedRoute>
+                      <CheckoutSuccess />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/checkout/cancel"
+                  element={
+                    <ProtectedRoute>
+                      <CheckoutCancel />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/orders"
+                  element={
+                    <ProtectedRoute>
+                      <OrdersPage />
+                    </ProtectedRoute>
+                  }
+                />
 
-            {/* Admin Only Route */}
-            <Route
-              path="/admin"
-              element={
-                <ProtectedRoute adminOnly>
-                  <AdminDashboard />
-                </ProtectedRoute>
-              }
-            />
-          </Routes>
+                {/* Admin Only Route */}
+                <Route
+                  path="/admin"
+                  element={
+                    <ProtectedRoute adminOnly>
+                      <AdminDashboard />
+                    </ProtectedRoute>
+                  }
+                />
+              </Routes>
+            </main>
+
+            {/* Persistent Footer across all routes */}
+            <Footer />
+          </div>
         </Router>
       </CartProvider>
     </AuthProvider>
