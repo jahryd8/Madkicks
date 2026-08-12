@@ -1,5 +1,5 @@
 export interface ShoeVariant {
-  id: number | string;
+  id: string; // Must be string to hold PostgreSQL UUIDs
   size: number | string;
   stock_quantity?: number;
 }
@@ -11,5 +11,6 @@ export interface ShoeProduct {
   price: number;
   imageUrl: string;
   sizes: (string | number)[];
-  description?: string; // 👈 Add optional description
+  description?: string;
+  variants?: ShoeVariant[]; // 👈 Added variants array
 }

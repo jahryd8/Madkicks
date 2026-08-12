@@ -12,7 +12,7 @@ const slugify = (text) => {
 };
 
 // =========================================================================
-// 1. GET ALL PRODUCTS (Includes aggregation of available variants/sizes)
+// 1. GET ALL PRODUCTS (Includes size array & variants for frontend)
 // =========================================================================
 exports.getAllProducts = async (req, res) => {
   try {
@@ -20,14 +20,18 @@ exports.getAllProducts = async (req, res) => {
     let queryText = `
       SELECT 
         p.id, 
-        p.title, 
+        p.title AS name, 
+        p.title,
         p.slug, 
         p.description, 
-        p.base_price, 
-        p.image_url, 
+        p.base_price AS price, 
+        p.base_price,
+        p.image_url AS "imageUrl", 
+        p.image_url,
         p.category, 
         p.brand,
         p.created_at,
+        ARRAY_REMOVE(ARRAY_AGG(DISTINCT pv.size ORDER BY pv.size ASC), NULL) AS sizes,
         COALESCE(
           json_agg(
             json_build_object(
@@ -74,7 +78,7 @@ exports.getAllProducts = async (req, res) => {
 };
 
 // =========================================================================
-// 2. GET SINGLE PRODUCT BY ID (Includes associated variants)
+// 2. GET SINGLE PRODUCT BY ID
 // =========================================================================
 exports.getProductById = async (req, res) => {
   const { id } = req.params;
@@ -83,14 +87,18 @@ exports.getProductById = async (req, res) => {
     const queryText = `
       SELECT 
         p.id, 
-        p.title, 
+        p.title AS name, 
+        p.title,
         p.slug, 
         p.description, 
-        p.base_price, 
-        p.image_url, 
+        p.base_price AS price, 
+        p.base_price,
+        p.image_url AS "imageUrl", 
+        p.image_url,
         p.category, 
         p.brand,
         p.created_at,
+        ARRAY_REMOVE(ARRAY_AGG(DISTINCT pv.size ORDER BY pv.size ASC), NULL) AS sizes,
         COALESCE(
           json_agg(
             json_build_object(
@@ -132,13 +140,17 @@ exports.getProductBySlug = async (req, res) => {
     const queryText = `
       SELECT 
         p.id, 
-        p.title, 
+        p.title AS name, 
+        p.title,
         p.slug, 
         p.description, 
-        p.base_price, 
-        p.image_url, 
+        p.base_price AS price, 
+        p.base_price,
+        p.image_url AS "imageUrl", 
+        p.image_url,
         p.category, 
         p.brand,
+        ARRAY_REMOVE(ARRAY_AGG(DISTINCT pv.size ORDER BY pv.size ASC), NULL) AS sizes,
         COALESCE(
           json_agg(
             json_build_object(
@@ -171,7 +183,7 @@ exports.getProductBySlug = async (req, res) => {
 };
 
 // =========================================================================
-// 4. CREATE PRODUCT (Admin - Uses DB Transaction for Product + Variants)
+// 4. CREATE PRODUCT (Admin)
 // =========================================================================
 exports.createProduct = async (req, res) => {
   const { title, description, base_price, image_url, category, brand, variants } = req.body;
@@ -198,7 +210,7 @@ exports.createProduct = async (req, res) => {
     const productResult = await client.query(productInsertQuery, productValues);
     const newProduct = productResult.rows[0];
 
-    // Insert Variants if provided in req.body
+    // Insert Variants if provided
     let insertedVariants = [];
     if (Array.isArray(variants) && variants.length > 0) {
       for (const variant of variants) {
@@ -218,11 +230,17 @@ exports.createProduct = async (req, res) => {
 
     await client.query('COMMIT');
 
+    const sizes = insertedVariants.map((v) => v.size);
+
     res.status(201).json({
       status: 'success',
       data: {
         product: {
           ...newProduct,
+          name: newProduct.title,
+          price: newProduct.base_price,
+          imageUrl: newProduct.image_url,
+          sizes,
           variants: insertedVariants,
         },
       },
@@ -262,7 +280,7 @@ exports.updateProduct = async (req, res) => {
         category = COALESCE($6, category),
         brand = COALESCE($7, brand)
       WHERE id = $8
-      RETURNING *
+      RETURNING *, title AS name, base_price AS price, image_url AS "imageUrl"
     `;
 
     const { rows } = await db.query(queryText, [
@@ -317,7 +335,7 @@ exports.deleteProduct = async (req, res) => {
 // 7. ADD A VARIANT TO AN EXISTING PRODUCT (Admin)
 // =========================================================================
 exports.addVariant = async (req, res) => {
-  const { id } = req.params; // Product ID
+  const { id } = req.params;
   const { size, stock_quantity } = req.body;
 
   if (!size || stock_quantity === undefined) {

@@ -1,30 +1,32 @@
 import React, { useState, useEffect } from 'react';
-import type { ShoeProduct } from '../types/product';
-import { useCart } from '../context/CartContext'; // Adjust path if using Cart Context
+import type { ShoeProduct, ShoeVariant } from '../types/product';
+import { useCart } from '../context/CartContext';
 
 interface ShoeDetailProps {
   product: ShoeProduct | null;
   onClose: () => void;
 }
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const ShoeDetail: React.FC<ShoeDetailProps> = ({ product, onClose }) => {
   const [selectedSize, setSelectedSize] = useState<string | number>('');
   const [quantity, setQuantity] = useState<number>(1);
   const [added, setAdded] = useState<boolean>(false);
-  
-  // Try to grab addToCart if context exists, fallback gracefully
-  const cartContext = useCart ? useCart() : null;
 
-  // Reset local state when product changes
+  // Call hook unconditionally at top-level
+  const { addToCart } = useCart();
+
   useEffect(() => {
-    if (product && product.sizes.length > 0) {
+    if (product?.sizes && product.sizes.length > 0) {
       setSelectedSize(product.sizes[0]);
+    } else {
+      setSelectedSize('');
     }
     setQuantity(1);
     setAdded(false);
   }, [product]);
 
-  // Handle escape key to close modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
@@ -35,28 +37,43 @@ export const ShoeDetail: React.FC<ShoeDetailProps> = ({ product, onClose }) => {
 
   if (!product) return null;
 
-  // Inside ShoeDetail.tsx:
+  const handleAddToCart = () => {
+    if (!selectedSize || !addToCart) return;
 
-const handleAddToCart = () => {
-  if (!selectedSize || !cartContext) return;
+    // 1. Check if matching variant exists by size
+    const matchingVariant: ShoeVariant | undefined = product.variants?.find(
+      (v) => String(v.size) === String(selectedSize)
+    );
 
-  // Adapt ShoeProduct + size into the CartItem payload format
-  cartContext.addToCart(
-    {
-      productId: product.id,
-      variantId: `${product.id}-${selectedSize}`, // Ensures unique variant per size
-      name: product.name,
-      brand: product.brand,
-      price: product.price,
-      size: String(selectedSize),
-      imageUrl: product.imageUrl,
-    },
-    quantity
-  );
+    // 2. Validate extracted variant UUID against strict standard
+    const rawVariantId = matchingVariant?.id ? String(matchingVariant.id) : null;
+    const isValidUuid = rawVariantId && UUID_REGEX.test(rawVariantId);
 
-  setAdded(true);
-  setTimeout(() => setAdded(false), 2000);
-};
+    // Fallback logic: Only use string ID if valid UUID, otherwise pass string for client warning
+    const realVariantId = isValidUuid 
+      ? rawVariantId 
+      : matchingVariant?.id 
+        ? String(matchingVariant.id)
+        : String(product.id);
+
+    addToCart(
+      {
+        productId: String(product.id),
+        variantId: realVariantId,
+        name: product.name,
+        brand: product.brand,
+        price: product.price,
+        size: String(selectedSize),
+        imageUrl: product.imageUrl,
+      },
+      quantity
+    );
+
+    setAdded(true);
+    setTimeout(() => setAdded(false), 2000);
+  };
+
+  const currentPrice = product.price || 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 lg:p-8">
@@ -68,7 +85,6 @@ const handleAddToCart = () => {
 
       {/* Modal Container */}
       <div className="relative w-full max-w-3xl bg-zinc-900 border border-zinc-800 rounded-3xl shadow-2xl overflow-hidden z-10 flex flex-col md:flex-row max-h-[90vh] md:max-h-[600px]">
-        
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -83,16 +99,22 @@ const handleAddToCart = () => {
         {/* Product Image Stage */}
         <div className="w-full md:w-1/2 bg-zinc-950 p-8 flex items-center justify-center relative overflow-hidden border-b md:border-b-0 md:border-r border-zinc-800/80">
           <div className="absolute inset-0 bg-gradient-to-br from-zinc-800/20 to-transparent pointer-events-none" />
-          
-          <img
-            src={product.imageUrl}
-            alt={product.name}
-            className="w-full h-auto max-h-[280px] md:max-h-[360px] object-contain relative z-10 drop-shadow-[0_20px_30px_rgba(0,0,0,0.7)]"
-          />
 
-          <span className="absolute top-4 left-4 bg-zinc-900/90 border border-zinc-800 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-lg backdrop-blur-md">
-            {product.brand}
-          </span>
+          {product.imageUrl ? (
+            <img
+              src={product.imageUrl}
+              alt={product.name}
+              className="w-full h-auto max-h-[280px] md:max-h-[360px] object-contain relative z-10 drop-shadow-[0_20px_30px_rgba(0,0,0,0.7)]"
+            />
+          ) : (
+            <div className="text-4xl text-zinc-700 relative z-10">👟</div>
+          )}
+
+          {product.brand && (
+            <span className="absolute top-4 left-4 bg-zinc-900/90 border border-zinc-800 text-zinc-300 text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-lg backdrop-blur-md">
+              {product.brand}
+            </span>
+          )}
         </div>
 
         {/* Product Details & Actions Form */}
@@ -110,11 +132,11 @@ const handleAddToCart = () => {
                 {product.name}
               </h2>
               <p className="text-2xl font-black text-white mt-2">
-                ${product.price.toFixed(2)}
+                ${currentPrice.toFixed(2)}
               </p>
             </div>
 
-            {/* Description (if present) */}
+            {/* Description */}
             {product.description && (
               <p className="text-xs text-zinc-400 leading-relaxed mb-6 line-clamp-3">
                 {product.description}
@@ -130,25 +152,29 @@ const handleAddToCart = () => {
                 <span className="text-[11px] text-zinc-500">True to size</span>
               </div>
 
-              <div className="grid grid-cols-4 gap-2">
-                {product.sizes.map((size) => {
-                  const isSelected = selectedSize === size;
-                  return (
-                    <button
-                      key={size}
-                      type="button"
-                      onClick={() => setSelectedSize(size)}
-                      className={`py-2.5 rounded-xl text-xs font-bold transition border ${
-                        isSelected
-                          ? 'bg-white text-black border-white shadow-lg shadow-white/10'
-                          : 'bg-zinc-950/60 text-zinc-300 border-zinc-800 hover:border-zinc-600 hover:text-white'
-                      }`}
-                    >
-                      {size}
-                    </button>
-                  );
-                })}
-              </div>
+              {product.sizes && product.sizes.length > 0 ? (
+                <div className="grid grid-cols-4 gap-2">
+                  {product.sizes.map((size) => {
+                    const isSelected = String(selectedSize) === String(size);
+                    return (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => setSelectedSize(size)}
+                        className={`py-2.5 rounded-xl text-xs font-bold transition border ${
+                          isSelected
+                            ? 'bg-white text-black border-white shadow-lg shadow-white/10'
+                            : 'bg-zinc-950/60 text-zinc-300 border-zinc-800 hover:border-zinc-600 hover:text-white'
+                        }`}
+                      >
+                        {size}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-rose-400 italic">No available sizes found for this product.</p>
+              )}
             </div>
 
             {/* Quantity Controls */}
@@ -197,7 +223,7 @@ const handleAddToCart = () => {
                 <span>Added to Cart!</span>
               </>
             ) : (
-              <span>Add to Cart — ${(product.price * quantity).toFixed(2)}</span>
+              <span>Add to Cart — ${(currentPrice * quantity).toFixed(2)}</span>
             )}
           </button>
         </div>

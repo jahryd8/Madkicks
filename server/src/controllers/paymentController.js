@@ -1,6 +1,10 @@
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const db = require('../config/db');
 
+// UUID v4 Regex Validator
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (id) => typeof id === 'string' && UUID_REGEX.test(id);
+
 // =========================================================================
 // 1. CREATE STRIPE CHECKOUT SESSION
 // =========================================================================
@@ -10,6 +14,10 @@ exports.createCheckoutSession = async (req, res) => {
 
   if (!order_id) {
     return res.status(400).json({ status: 'fail', message: 'Order ID is required.' });
+  }
+
+  if (!isUuid(order_id)) {
+    return res.status(400).json({ status: 'fail', message: `Invalid Order ID format: "${order_id}".` });
   }
 
   try {
@@ -51,7 +59,7 @@ exports.createCheckoutSession = async (req, res) => {
       });
     }
 
-    // Fallback to order total if line items are missing or misconfigured
+    // Construct Stripe line items
     const lineItems = order.items.length > 0 
       ? order.items.map((item) => ({
           price_data: {
@@ -86,7 +94,7 @@ exports.createCheckoutSession = async (req, res) => {
         user_id: userId.toString(),
       },
       success_url: `${clientUrl}/checkout/success?order_id=${order.id}`,
-      cancel_url: `${clientUrl}/checkout/cancel`,
+      cancel_url: `${clientUrl}/checkout/cancel?order_id=${order.id}`,
     });
 
     res.status(200).json({
@@ -126,43 +134,33 @@ exports.handleStripeWebhook = async (req, res) => {
     const paymentIntentId = session.payment_intent;
 
     if (orderId) {
-      const client = await db.getClient ? await db.getClient() : null;
+      const client = typeof db.connect === 'function' ? await db.connect() : await db.pool.connect();
 
       try {
-        if (client) await client.query('BEGIN');
+        await client.query('BEGIN');
 
-        // Update status and attach Stripe Payment Intent ID
+        // Update order status to paid (stock was deducted during order creation)
         const updateOrderQuery = `
           UPDATE orders 
           SET status = 'paid', stripe_payment_id = $2, updated_at = NOW() 
           WHERE id = $1 AND status = 'pending'
           RETURNING id
         `;
-        const queryTarget = client || db;
-        const { rows } = await queryTarget.query(updateOrderQuery, [orderId, paymentIntentId]);
+        const { rows } = await client.query(updateOrderQuery, [orderId, paymentIntentId]);
 
         if (rows.length > 0) {
-          // Deduct variant stock quantities upon successful payment
-          const deductStockQuery = `
-            UPDATE product_variants pv
-            SET stock_quantity = pv.stock_quantity - oi.quantity
-            FROM order_items oi
-            WHERE oi.order_id = $1 AND oi.variant_id = pv.id
-          `;
-          await queryTarget.query(deductStockQuery, [orderId]);
-
-          if (client) await client.query('COMMIT');
-          console.log(`✅ Order #${orderId} marked as PAID and inventory updated.`);
+          await client.query('COMMIT');
+          console.log(`✅ Order #${orderId} successfully marked as PAID.`);
         } else {
-          if (client) await client.query('ROLLBACK');
+          await client.query('ROLLBACK');
           console.log(`⚠️ Order #${orderId} was already processed or not pending.`);
         }
       } catch (dbError) {
-        if (client) await client.query('ROLLBACK');
+        await client.query('ROLLBACK');
         console.error(`Failed to update order #${orderId} in DB:`, dbError.message);
         return res.status(500).send('Database processing error.');
       } finally {
-        if (client) client.release();
+        client.release();
       }
     }
   }

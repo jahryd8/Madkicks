@@ -1,8 +1,12 @@
+// src/context/CartContext.tsx
 import { createContext, useContext, useState, useEffect } from 'react';
 import type { FC, ReactNode } from 'react';
 import type { CartItem, CartContextType } from '../types/cart';
 
 const CART_STORAGE_KEY = 'madkicks_cart';
+
+// Standard UUID v4 regex pattern check
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
@@ -10,7 +14,18 @@ export const CartProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [cartItems, setCartItems] = useState<CartItem[]>(() => {
     try {
       const savedCart = localStorage.getItem(CART_STORAGE_KEY);
-      return savedCart ? JSON.parse(savedCart) : [];
+      if (!savedCart) return [];
+
+      const parsed: CartItem[] = JSON.parse(savedCart);
+
+      // Filter out stale non-UUID items (e.g. legacy 'shoe-3' mock items)
+      return parsed.filter((item) => {
+        const isValid = item.variantId && UUID_REGEX.test(String(item.variantId));
+        if (!isValid) {
+          console.warn(`[CartProvider] Removing legacy/invalid cart item: "${item.name}" (variantId: ${item.variantId})`);
+        }
+        return isValid;
+      });
     } catch (error) {
       console.error('Failed to parse cart from localStorage:', error);
       return [];
@@ -25,8 +40,8 @@ export const CartProvider: FC<{ children: ReactNode }> = ({ children }) => {
     }
   }, [cartItems]);
 
-  // Unique ID by variantId
-  const createCartItemId = (variantId: number | string): string => {
+  // Unique key by variant UUID
+  const createCartItemId = (variantId: string | number): string => {
     return `var-${variantId}`;
   };
 
@@ -34,6 +49,12 @@ export const CartProvider: FC<{ children: ReactNode }> = ({ children }) => {
     item: Omit<CartItem, 'id' | 'quantity'>,
     quantityToAdd: number = 1
   ): void => {
+    // Prevent adding items with non-UUID variant IDs
+    if (!item.variantId || !UUID_REGEX.test(String(item.variantId))) {
+      console.error(`Cannot add to cart: variantId "${item.variantId}" is not a valid database UUID.`);
+      return;
+    }
+
     const targetId = createCartItemId(item.variantId);
 
     setCartItems((prevItems) => {

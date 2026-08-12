@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useCart } from '../context/CartContext';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+import { ordersApi } from '../api/ordersApi';
 
 export const CheckoutPage: React.FC = () => {
   const navigate = useNavigate();
@@ -36,56 +35,60 @@ export const CheckoutPage: React.FC = () => {
     setSubmitting(true);
 
     try {
-      let token = localStorage.getItem('token');
-      if (!token) {
-        throw new Error('Please log in to place an order.');
-      }
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-      // Sanitize token (remove extra quotes or duplicate "Bearer " prefixes)
-      token = token.replace(/^"|"$/g, '').trim();
-      if (token.toLowerCase().startsWith('bearer ')) {
-        token = token.slice(7).trim();
-      }
+      const payloadItems = cartItems.map((item: any) => {
+        const rawVariantId =
+          item.variant_id ||
+          item.variantId ||
+          item.variant?.id ||
+          item.id;
 
-      const payloadItems = cartItems.map((item: any) => ({
-        variant_id: item.variantId || item.id,
-        quantity: item.quantity,
-      }));
+        if (!uuidRegex.test(rawVariantId)) {
+          console.warn('Invalid UUID detected in cart item:', item);
+        }
+
+        return {
+          variant_id: rawVariantId,
+          quantity: item.quantity,
+        };
+      });
 
       const orderPayload = {
         items: payloadItems,
         shipping_address_line1: formData.shippingAddressLine1,
-        shipping_address_line2: formData.shippingAddressLine2,
+        shipping_address_line2: formData.shippingAddressLine2 || undefined,
         city: formData.city,
         parish_or_state: formData.parishOrState,
         country: formData.country,
       };
 
-      const response = await fetch(`${API_BASE_URL}/api/orders`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(orderPayload),
-      });
+      // ordersApi.createOrder already returns CreateOrderResponse directly (unwrapped from response.data)
+      const response = await ordersApi.createOrder(orderPayload);
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || 'Failed to place order.');
-      }
-
+      // Clear local shopping cart state prior to external redirect
       if (clearCart) clearCart();
 
-      navigate('/orders', { state: { orderSuccess: true } });
+      // Check checkoutUrl directly on the returned object
+      if (response?.checkoutUrl) {
+        window.location.href = response.checkoutUrl;
+      } else {
+        // Fallback for unpaid/COD orders or standard confirmations
+        navigate('/orders', { state: { orderSuccess: true } });
+      }
     } catch (err: any) {
-      setErrorMessage(err.message || 'An unexpected error occurred.');
+      if (err.response?.status === 401) {
+        setErrorMessage('Your session has expired or you are unauthorized. Please log in again.');
+      } else {
+        setErrorMessage(
+          err.response?.data?.message || err.message || 'An unexpected error occurred while placing your order.'
+        );
+      }
     } finally {
       setSubmitting(false);
     }
   };
-
+  
   if (cartItems.length === 0) {
     return (
       <div className="min-h-[80vh] bg-slate-50/50 flex flex-col items-center justify-center p-4 font-sans text-center">
@@ -240,14 +243,14 @@ export const CheckoutPage: React.FC = () => {
                   {submitting ? (
                     <>
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      Placing Order...
+                      Redirecting to Payment...
                     </>
                   ) : (
                     <>
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                       </svg>
-                      Place Order (${totalAmount?.toFixed(2) || '0.00'})
+                      Proceed to Payment (${totalAmount?.toFixed(2) || '0.00'})
                     </>
                   )}
                 </button>
@@ -263,36 +266,41 @@ export const CheckoutPage: React.FC = () => {
               </h2>
 
               <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 pr-1 space-y-3 mb-4">
-                {cartItems.map((item: any) => (
-                  <div key={item.id} className="pt-3 first:pt-0 flex items-center gap-3">
-                    <div className="w-14 h-14 bg-slate-100 rounded-lg border border-slate-200/60 flex-shrink-0 overflow-hidden">
-                      {item.imageUrl || item.image ? (
-                        <img 
-                          src={item.imageUrl || item.image} 
-                          alt={item.title || item.name || 'Product Image'} 
-                          className="w-full h-full object-cover" 
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-xs text-slate-400">
-                          👟
-                        </div>
-                      )}
-                    </div>
+                {cartItems.map((item: any, index: number) => {
+                  const rawSrc = item.imageUrl || item.image;
+                  const hasValidImage = typeof rawSrc === 'string' && rawSrc.trim() !== '';
 
-                    <div className="flex-1 min-w-0">
-                      <h4 className="text-xs font-bold text-slate-900 truncate">
-                        {item.title || item.name || 'Item'}
-                      </h4>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        Qty: {item.quantity} {item.size && `| Size: ${item.size}`}
+                  return (
+                    <div key={item.variant_id || item.id || index} className="pt-3 first:pt-0 flex items-center gap-3">
+                      <div className="w-14 h-14 bg-slate-100 rounded-lg border border-slate-200/60 flex-shrink-0 overflow-hidden">
+                        {hasValidImage ? (
+                          <img 
+                            src={rawSrc} 
+                            alt={item.title || item.name || 'Product Image'} 
+                            className="w-full h-full object-cover" 
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-xs text-slate-400">
+                            👟
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-xs font-bold text-slate-900 truncate">
+                          {item.title || item.name || 'Item'}
+                        </h4>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Qty: {item.quantity} {item.size && `| Size: ${item.size}`}
+                        </p>
+                      </div>
+
+                      <p className="text-xs font-bold text-slate-900">
+                        ${((item.price || 0) * item.quantity).toFixed(2)}
                       </p>
                     </div>
-
-                    <p className="text-xs font-bold text-slate-900">
-                      ${((item.price || 0) * item.quantity).toFixed(2)}
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div className="border-t border-slate-100 pt-4 space-y-2 text-sm">
@@ -317,7 +325,7 @@ export const CheckoutPage: React.FC = () => {
                 <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                 </svg>
-                <span>Secure Checkout Encryption</span>
+                <span>Encrypted Stripe Payment Guarantee</span>
               </div>
               <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
                 <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
