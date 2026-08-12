@@ -90,13 +90,18 @@ exports.createOrder = async (req, res) => {
         price_at_purchase: itemPrice,
       });
 
+      // Validate image URL: Stripe rejects relative or malformed URLs
+      const hasValidImageUrl =
+        typeof variant.image_url === 'string' &&
+        (variant.image_url.startsWith('http://') || variant.image_url.startsWith('https://'));
+
       // Structure line item payload for Stripe Checkout Session
       lineItemsForStripe.push({
         price_data: {
           currency: 'usd',
           product_data: {
             name: `${variant.title}${variant.size ? ` (${variant.size})` : ''}`,
-            images: variant.image_url ? [variant.image_url] : [],
+            ...(hasValidImageUrl ? { images: [variant.image_url] } : {}),
           },
           unit_amount: Math.round(itemPrice * 100), // Stripe expects amounts in cents
         },
@@ -146,8 +151,9 @@ exports.createOrder = async (req, res) => {
       );
     }
 
-    // 4. Create Stripe Checkout Session using newOrder.id
-    const clientAppUrl = process.env.CLIENT_APP_URL || 'http://localhost:5173';
+    // 4. Create Stripe Checkout Session safely checking environment variables
+    const rawClientUrl = process.env.CLIENT_URL || process.env.CLIENT_APP_URL || 'http://localhost:5173';
+    const clientAppUrl = rawClientUrl.replace(/\/$/, '');
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -173,9 +179,9 @@ exports.createOrder = async (req, res) => {
     });
   } catch (error) {
     await client.query('ROLLBACK');
-    console.error('Order Creation Error:', error.message);
+    console.error('Order Creation Error:', error);
 
-    res.status(error.statusCode || 500).json({
+    res.status(error.statusCode || 400).json({
       status: 'fail',
       message: error.message || 'Failed to process order.',
     });
