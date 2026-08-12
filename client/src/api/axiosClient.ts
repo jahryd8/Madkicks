@@ -7,7 +7,8 @@ const axiosClient: AxiosInstance = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 10000,
+  // Increased to 30s to account for potential Render free-tier cold starts
+  timeout: 30000,
 });
 
 axiosClient.interceptors.request.use(
