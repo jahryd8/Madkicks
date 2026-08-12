@@ -12,20 +12,24 @@ const errorHandler = require('./middleware/errorHandler');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// 1. CORS Setup (Restrict origins in production)
-const allowedOrigins = [
-  'http://localhost:5173', // Local Vite frontend
-  process.env.CLIENT_URL,   // Hosted Vercel frontend domain
+// 1. CORS Setup (Sanitizes origins and strips trailing slashes)
+const rawOrigins = [
+  'http://localhost:5173',
+  process.env.CLIENT_URL,
+  process.env.CLIENT_APP_URL,
 ].filter(Boolean);
+
+// Strip trailing slashes from allowed origins to match browser Origin headers strictly
+const allowedOrigins = rawOrigins.map((origin) => origin.replace(/\/$/, ''));
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps, curl, or Postman)
+      // Allow requests with no origin (mobile apps, curl, Postman, server-to-server)
       if (!origin || allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
-      return callback(new Error('CORS policy violation: Origin not allowed.'));
+      return callback(new Error(`CORS policy violation: Origin '${origin}' not allowed.`));
     },
     credentials: true,
   })
@@ -68,5 +72,5 @@ app.use((req, res) => {
 app.use(errorHandler);
 
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
